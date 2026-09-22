@@ -1,40 +1,40 @@
 # TypeRush ⌨️
 
-An interactive typing speed test with live stats, a leaderboard, and per-keystroke weak-point analysis.
+En interaktiv hurtigskrivingstest med statistikk i sanntid, resultatliste og analyse av svakheter per tastetrykk.
 
-## Features
+## Funksjoner
 
-- **Three test modes** — Time (15s/30s/60s/120s), Words, and Quote
-- **Three difficulty levels** — Easy, Medium, Hard word pools
-- **Live stats while typing** — WPM, accuracy, time remaining, characters typed, and corrections made
-- **Error tracking** — characters you mistype and later fix are flagged distinctly from ones you got right the first time
-- **Weak-point analysis** — after each test, a breakdown of your problem keys and slowest letter combinations, with a plain-English tip on what to practice
-- **Leaderboard** — top scores with a podium view, filterable by mode
-- **Stats & history** — total tests, average/best WPM, average accuracy, and a WPM history chart
-- **Light/dark theme**, keyboard sound effects, and keyboard-only shortcuts (Tab to restart, Esc to reset)
+- **Tre testmoduser** — Tid (15s/30s/60s/120s), Ord og Sitat
+- **Tre vanskelighetsgrader** — Lett, Middels, Vanskelig ordbank
+- **Statistikk i sanntid mens du skriver** — ord i minuttet (WPM), nøyaktighet, gjenstående tid, antall tegn skrevet og antall rettelser
+- **Feilsporing** — tegn du skriver feil og senere retter markeres tydelig annerledes enn tegn du fikk riktig med én gang
+- **Svakhetsanalyse** — etter hver test får du en oversikt over hvilke taster du sliter mest med og hvilke bokstavkombinasjoner som går tregest, med et konkret tips til hva du bør øve på
+- **Resultatliste** — beste resultater med pallvisning, filtrerbar per modus
+- **Statistikk og historikk** — antall tester totalt, gjennomsnittlig/beste WPM, gjennomsnittlig nøyaktighet og en graf over WPM-historikk
+- **Lyst/mørkt tema**, tastelyder og hurtigtaster (Tab for å starte på nytt, Esc for å nullstille)
 
-## Tech stack
+## Teknologi
 
 - **Backend:** Node.js, Express, better-sqlite3
-- **Frontend:** vanilla HTML/CSS/JS (no build step, no framework)
+- **Frontend:** ren HTML/CSS/JS (ingen byggeprosess, ingen rammeverk)
 
-## Getting started
+## Kom i gang
 
 ```bash
 npm install
 npm run dev
 ```
 
-The app runs on [http://localhost:3000](http://localhost:3000) by default (override with the `PORT` environment variable).
+Appen kjører på [http://localhost:3000](http://localhost:3000) som standard (overstyr med miljøvariabelen `PORT`).
 
 ## API
 
-| Method | Endpoint | Description |
+| Metode | Endepunkt | Beskrivelse |
 |---|---|---|
-| GET | `/api/scores` | List leaderboard scores (optional `?mode=` filter) |
-| POST | `/api/scores` | Save a new leaderboard score |
-| DELETE | `/api/scores/:id` | Remove a leaderboard score |
-| POST | `/api/history` | Record a completed test for stats/history |
-| GET | `/api/stats` | Aggregate stats + WPM history (optional `?limit=`) |
-| DELETE | `/api/history` | Clear test history |
-| GET | `/api/health` | Health check |
+| GET | `/api/scores` | Hent resultatliste (valgfritt `?mode=`-filter) |
+| POST | `/api/scores` | Lagre et nytt resultat på resultatlisten |
+| DELETE | `/api/scores/:id` | Fjern et resultat fra resultatlisten |
+| POST | `/api/history` | Registrer en gjennomført test for statistikk/historikk |
+| GET | `/api/stats` | Samlet statistikk + WPM-historikk (valgfritt `?limit=`) |
+| DELETE | `/api/history` | Tøm testhistorikken |
+| GET | `/api/health` | Statussjekk |
