@@ -52,6 +52,22 @@ db.exec(`
         created_at TEXT DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS char_stats (
+        char TEXT PRIMARY KEY,
+        attempts INTEGER DEFAULT 0,
+        errors INTEGER DEFAULT 0,
+        total_ms REAL DEFAULT 0,
+        timed_samples INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS bigram_stats (
+        bigram TEXT PRIMARY KEY,
+        attempts INTEGER DEFAULT 0,
+        errors INTEGER DEFAULT 0,
+        total_ms REAL DEFAULT 0,
+        timed_samples INTEGER DEFAULT 0
+    );
+
     CREATE INDEX IF NOT EXISTS idx_scores_wpm ON scores(wpm DESC);
     CREATE INDEX IF NOT EXISTS idx_scores_mode ON scores(mode);
     CREATE INDEX IF NOT EXISTS idx_history_created ON history(created_at DESC);
@@ -103,7 +119,31 @@ const stmts = {
     `),
     clearHistory: db.prepare(`
         DELETE FROM history
-    `)
+    `),
+
+    // Weak-point stats
+    upsertCharStat: db.prepare(`
+        INSERT INTO char_stats (char, attempts, errors, total_ms, timed_samples)
+        VALUES (@char, @attempts, @errors, @totalMs, @timedSamples)
+        ON CONFLICT(char) DO UPDATE SET
+            attempts = attempts + @attempts,
+            errors = errors + @errors,
+            total_ms = total_ms + @totalMs,
+            timed_samples = timed_samples + @timedSamples
+    `),
+    upsertBigramStat: db.prepare(`
+        INSERT INTO bigram_stats (bigram, attempts, errors, total_ms, timed_samples)
+        VALUES (@bigram, @attempts, @errors, @totalMs, @timedSamples)
+        ON CONFLICT(bigram) DO UPDATE SET
+            attempts = attempts + @attempts,
+            errors = errors + @errors,
+            total_ms = total_ms + @totalMs,
+            timed_samples = timed_samples + @timedSamples
+    `),
+    getAllCharStats: db.prepare(`SELECT * FROM char_stats`),
+    getAllBigramStats: db.prepare(`SELECT * FROM bigram_stats`),
+    clearCharStats: db.prepare(`DELETE FROM char_stats`),
+    clearBigramStats: db.prepare(`DELETE FROM bigram_stats`)
 };
 
 // ========== API ROUTES ==========
@@ -236,6 +276,76 @@ app.delete('/api/history', (req, res) => {
     } catch (err) {
         console.error('DELETE /api/history error:', err);
         res.status(500).json({ success: false, error: 'Failed to clear history' });
+    }
+});
+
+// --- Weak-point stats (for Practice Mode) ---
+
+const saveWeakPoints = db.transaction((charStats, bigramStats) => {
+    for (const [char, s] of Object.entries(charStats || {})) {
+        if (typeof char !== 'string' || char.length !== 1) continue;
+        stmts.upsertCharStat.run({
+            char,
+            attempts: Math.max(0, Math.round(s.attempts || 0)),
+            errors: Math.max(0, Math.round(s.errors || 0)),
+            totalMs: Math.max(0, s.totalMs || 0),
+            timedSamples: Math.max(0, Math.round(s.timedSamples || 0))
+        });
+    }
+    for (const [bigram, s] of Object.entries(bigramStats || {})) {
+        if (typeof bigram !== 'string' || bigram.length !== 2) continue;
+        stmts.upsertBigramStat.run({
+            bigram,
+            attempts: Math.max(0, Math.round(s.attempts || 0)),
+            errors: Math.max(0, Math.round(s.errors || 0)),
+            totalMs: Math.max(0, s.totalMs || 0),
+            timedSamples: Math.max(0, Math.round(s.timedSamples || 0))
+        });
+    }
+});
+
+// POST /api/weakpoints — accumulate per-character / per-bigram stats from a completed test
+app.post('/api/weakpoints', (req, res) => {
+    try {
+        const { charStats, bigramStats } = req.body;
+        if (typeof charStats !== 'object' || typeof bigramStats !== 'object') {
+            return res.status(400).json({ success: false, error: 'charStats and bigramStats must be objects' });
+        }
+        saveWeakPoints(charStats, bigramStats);
+        res.json({ success: true });
+    } catch (err) {
+        console.error('POST /api/weakpoints error:', err);
+        res.status(500).json({ success: false, error: 'Failed to save weak-point stats' });
+    }
+});
+
+// GET /api/weakpoints — all-time accumulated character and bigram stats
+app.get('/api/weakpoints', (req, res) => {
+    try {
+        const charStats = {};
+        for (const row of stmts.getAllCharStats.all()) {
+            charStats[row.char] = { attempts: row.attempts, errors: row.errors, totalMs: row.total_ms, timedSamples: row.timed_samples };
+        }
+        const bigramStats = {};
+        for (const row of stmts.getAllBigramStats.all()) {
+            bigramStats[row.bigram] = { attempts: row.attempts, errors: row.errors, totalMs: row.total_ms, timedSamples: row.timed_samples };
+        }
+        res.json({ success: true, charStats, bigramStats });
+    } catch (err) {
+        console.error('GET /api/weakpoints error:', err);
+        res.status(500).json({ success: false, error: 'Failed to fetch weak-point stats' });
+    }
+});
+
+// DELETE /api/weakpoints — clear all accumulated character/bigram stats
+app.delete('/api/weakpoints', (req, res) => {
+    try {
+        stmts.clearCharStats.run();
+        stmts.clearBigramStats.run();
+        res.json({ success: true });
+    } catch (err) {
+        console.error('DELETE /api/weakpoints error:', err);
+        res.status(500).json({ success: false, error: 'Failed to clear weak-point stats' });
     }
 });
 

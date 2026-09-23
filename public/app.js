@@ -116,8 +116,16 @@ const state = {
     charIndex: 0,
     correctChars: 0,
     incorrectChars: 0,
+    correctedChars: 0,
     totalKeystrokes: 0,
+    hadError: [],
     wpmHistory: [],
+    charStats: {},
+    bigramStats: {},
+    lastKeystrokeTime: null,
+    prevInputLength: 0,
+    practiceMode: false,
+    practiceText: null,
     soundEnabled: true,
     theme: localStorage.getItem('typerush-theme') || 'dark'
 };
@@ -170,6 +178,7 @@ const els = {
     liveAccuracy: $('#live-accuracy'),
     liveTime: $('#live-time'),
     liveChars: $('#live-chars'),
+    liveCorrected: $('#live-corrected'),
     wpmBar: $('#wpm-bar'),
     accuracyBar: $('#accuracy-bar'),
     timeBar: $('#time-bar'),
@@ -180,7 +189,12 @@ const els = {
     resultCorrect: $('#result-correct'),
     resultErrors: $('#result-errors'),
     resultRaw: $('#result-raw'),
+    resultCorrected: $('#result-corrected'),
     resultsGrade: $('#results-grade'),
+    resultsTitle: $('#results-title'),
+    weaknessBody: $('#weakness-body'),
+    practiceWeaknessBody: $('#practice-weakness-body'),
+    btnStartPractice: $('#btn-start-practice'),
     wpmChart: $('#wpm-chart'),
     saveModal: $('#save-modal'),
     playerName: $('#player-name'),
@@ -190,6 +204,8 @@ const els = {
     leaderboardEmpty: $('#leaderboard-empty'),
     historyChart: $('#history-chart'),
     noHistory: $('#no-history'),
+    keyboardHeatmap: $('#keyboard-heatmap'),
+    noHeatmap: $('#no-heatmap'),
     totalTests: $('#total-tests'),
     avgWpm: $('#avg-wpm'),
     bestWpm: $('#best-wpm'),
@@ -265,6 +281,10 @@ function initParticles() {
 
 // ========== TEXT GENERATION ==========
 function generateText() {
+    if (state.practiceMode && state.practiceText) {
+        return state.practiceText;
+    }
+
     if (state.mode === 'quote') {
         return QUOTES[Math.floor(Math.random() * QUOTES.length)];
     }
@@ -390,6 +410,7 @@ function updateLiveStats() {
     els.liveWpm.textContent = wpm;
     els.liveAccuracy.innerHTML = accuracy + '<span class="stat-unit">%</span>';
     els.liveChars.textContent = state.charIndex;
+    els.liveCorrected.textContent = state.correctedChars;
 
     // Animate bars
     els.wpmBar.style.width = Math.min(100, (wpm / 150) * 100) + '%';
@@ -414,6 +435,8 @@ function showResults() {
     els.resultCorrect.textContent = state.correctChars;
     els.resultErrors.textContent = state.incorrectChars;
     els.resultRaw.textContent = rawWpm;
+    els.resultCorrected.textContent = state.correctedChars;
+    els.resultsTitle.textContent = state.practiceMode ? 'Practice Drill Complete!' : 'Test Complete!';
 
     // Grade
     let grade = 'F';
@@ -433,8 +456,211 @@ function showResults() {
     // Draw WPM chart
     drawWpmChart();
 
+    // Weak-point analysis
+    renderWeaknessPanel(els.weaknessBody, state.charStats, state.bigramStats);
+
     // Save to history
     saveToHistory(wpm, accuracy);
+    saveWeakPointStats();
+}
+
+// ========== WEAK POINT ANALYSIS ==========
+const MIN_CHAR_ATTEMPTS = 3;
+const MIN_BIGRAM_ATTEMPTS = 2;
+
+function computeWeakPoints(charStats, bigramStats) {
+    // "Trouble score" blends error rate (weighted heavily) with relative slowness,
+    // so a key that's both mistyped often AND slow to reach rises to the top.
+    const charEntries = Object.entries(charStats || {})
+        .filter(([, s]) => s.attempts >= MIN_CHAR_ATTEMPTS)
+        .map(([ch, s]) => ({
+            key: ch,
+            attempts: s.attempts,
+            errorRate: s.errors / s.attempts,
+            avgMs: s.timedSamples > 0 ? s.totalMs / s.timedSamples : null,
+        }));
+
+    const bigramEntries = Object.entries(bigramStats || {})
+        .filter(([, s]) => s.attempts >= MIN_BIGRAM_ATTEMPTS && s.timedSamples > 0)
+        .map(([bg, s]) => ({
+            key: bg,
+            attempts: s.attempts,
+            errorRate: s.errors / s.attempts,
+            avgMs: s.totalMs / s.timedSamples,
+        }));
+
+    if (charEntries.length === 0 && bigramEntries.length === 0) {
+        return null; // not enough data for a confident read
+    }
+
+    const avgCharMs = average(charEntries.filter(c => c.avgMs != null).map(c => c.avgMs));
+    const scoreChar = (c) => c.errorRate * 100 + (c.avgMs != null && avgCharMs > 0 ? Math.max(0, (c.avgMs - avgCharMs) / avgCharMs) * 20 : 0);
+    const weakChars = charEntries
+        .filter(c => c.errorRate > 0 || (avgCharMs > 0 && c.avgMs > avgCharMs * 1.15))
+        .sort((a, b) => scoreChar(b) - scoreChar(a))
+        .slice(0, 5);
+
+    const avgBigramMs = average(bigramEntries.map(b => b.avgMs));
+    const scoreBigram = (b) => b.errorRate * 100 + (avgBigramMs > 0 ? Math.max(0, (b.avgMs - avgBigramMs) / avgBigramMs) * 20 : 0);
+    const weakBigrams = bigramEntries
+        .filter(b => b.errorRate > 0 || (avgBigramMs > 0 && b.avgMs > avgBigramMs * 1.15))
+        .sort((a, b) => scoreBigram(b) - scoreBigram(a))
+        .slice(0, 5);
+
+    // Headline insight: the single worst signal, whichever is more telling
+    let insight = null;
+    const topChar = weakChars[0];
+    const topBigram = weakBigrams[0];
+    if (topChar && topChar.errorRate >= 0.25) {
+        const pct = Math.round(topChar.errorRate * 100);
+        insight = `You miss "${displayKey(topChar.key)}" about ${pct}% of the time it comes up — a few minutes of focused practice on words with that letter should help.`;
+    } else if (topBigram && topBigram.errorRate >= 0.2) {
+        const pct = Math.round(topBigram.errorRate * 100);
+        insight = `The "${displayKey(topBigram.key)}" combo trips you up ${pct}% of the time — that transition is worth slowing down for.`;
+    } else if (topBigram && avgBigramMs > 0) {
+        insight = `Your biggest hesitation is the "${displayKey(topBigram.key)}" transition — it's noticeably slower than your average keystroke.`;
+    } else if (topChar) {
+        insight = `"${displayKey(topChar.key)}" is your slowest key right now — nothing wrong with your accuracy, just a touch of extra reach time.`;
+    }
+
+    return { weakChars, weakBigrams, insight };
+}
+
+function average(arr) {
+    if (arr.length === 0) return 0;
+    return arr.reduce((a, b) => a + b, 0) / arr.length;
+}
+
+function displayKey(key) {
+    return key.replace(/ /g, '␣');
+}
+
+function renderWeaknessPanel(targetEl, charStats, bigramStats, emptyMessage) {
+    const result = computeWeakPoints(charStats, bigramStats);
+
+    if (!result) {
+        targetEl.innerHTML = `
+            <div class="weakness-empty">
+                ${emptyMessage || 'Not enough data yet to spot patterns — take a longer test (more words or more time) and we\'ll pinpoint the keys and letter combos slowing you down.'}
+            </div>
+        `;
+        return;
+    }
+
+    const { weakChars, weakBigrams, insight } = result;
+    const maxCharScore = Math.max(1, ...weakChars.map(c => c.errorRate * 100 + (c.avgMs || 0) / 20));
+
+    const charRows = weakChars.length > 0
+        ? weakChars.map(c => {
+            const pct = Math.round(c.errorRate * 100);
+            const barPct = Math.min(100, Math.round(((c.errorRate * 100 + (c.avgMs || 0) / 20) / maxCharScore) * 100));
+            const speedLabel = c.avgMs != null ? `${Math.round(c.avgMs)}ms avg` : 'no timing data';
+            return `
+                <div class="weak-key-row">
+                    <div class="weak-key-chip">${escapeHtml(displayKey(c.key))}</div>
+                    <div class="weak-key-bar-wrap">
+                        <div class="weak-key-bar-track"><div class="weak-key-bar-fill" style="width:${barPct}%"></div></div>
+                        <div class="weak-key-meta">${pct}% error rate &middot; ${speedLabel}</div>
+                    </div>
+                </div>
+            `;
+        }).join('')
+        : `<div class="weakness-empty">No standout problem keys — nice and even!</div>`;
+
+    const bigramRows = weakBigrams.length > 0
+        ? weakBigrams.map(b => {
+            const pct = Math.round(b.errorRate * 100);
+            return `
+                <div class="weak-bigram-row">
+                    <div class="weak-key-chip">${escapeHtml(displayKey(b.key))}</div>
+                    <div class="weak-key-bar-wrap">
+                        <div class="weak-key-meta">${pct}% error rate &middot; ${Math.round(b.avgMs)}ms avg transition</div>
+                    </div>
+                </div>
+            `;
+        }).join('')
+        : `<div class="weakness-empty">No slow letter combos detected.</div>`;
+
+    targetEl.innerHTML = `
+        <div class="weakness-columns">
+            <div>
+                <div class="weakness-col-label">Problem Keys</div>
+                ${charRows}
+            </div>
+            <div>
+                <div class="weakness-col-label">Slow Combos</div>
+                ${bigramRows}
+            </div>
+        </div>
+        ${insight ? `<div class="weakness-insight">💡 ${escapeHtml(insight)}</div>` : ''}
+    `;
+
+    return result;
+}
+
+// ========== PRACTICE MODE ==========
+let practiceStatsCache = null;
+
+async function loadPracticeWeakPoints() {
+    els.practiceWeaknessBody.innerHTML = `<div class="weakness-empty">Loading your typing history…</div>`;
+    els.btnStartPractice.disabled = true;
+
+    const result = await API.get('/api/weakpoints');
+    if (!result.success) {
+        els.practiceWeaknessBody.innerHTML = `<div class="weakness-empty">Couldn't load your weak-point history. Is the server running?</div>`;
+        return;
+    }
+
+    practiceStatsCache = { charStats: result.charStats, bigramStats: result.bigramStats };
+
+    const analysis = renderWeaknessPanel(
+        els.practiceWeaknessBody,
+        result.charStats,
+        result.bigramStats,
+        'Complete a few tests first — practice drills are built from your typing history.'
+    );
+
+    els.btnStartPractice.disabled = !analysis;
+}
+
+// Builds practice text biased toward whatever keys/combos are currently weakest,
+// while still mixing in ordinary words so it reads naturally rather than as drill repetition.
+function generatePracticeText(charStats, bigramStats, count = 40) {
+    const analysis = computeWeakPoints(charStats, bigramStats);
+    if (!analysis) return null;
+
+    const troubleChars = {};
+    analysis.weakChars.forEach(c => {
+        troubleChars[c.key] = c.errorRate * 100 + (c.avgMs || 0) / 20;
+    });
+    const troubleBigrams = new Set(analysis.weakBigrams.map(b => b.key));
+
+    // Easy + medium words only — "hard" words are long enough that they rack up a high
+    // raw hit count just by being long, not because they're actually good drill material.
+    const pool = [...WORDS.easy, ...WORDS.medium];
+
+    function wordDensity(word) {
+        const w = word.toLowerCase();
+        let score = 0;
+        for (let i = 0; i < w.length; i++) {
+            if (troubleChars[w[i]]) score += troubleChars[w[i]];
+            if (i > 0 && troubleBigrams.has(w[i - 1] + w[i])) score += 15;
+        }
+        return score / w.length; // density, so short words stay competitive with long ones
+    }
+
+    const weighted = pool.map(word => ({ word, weight: 1 + wordDensity(word) * 3 }));
+    const totalWeight = weighted.reduce((sum, w) => sum + w.weight, 0);
+
+    const chosen = [];
+    for (let i = 0; i < count; i++) {
+        let r = Math.random() * totalWeight;
+        for (const w of weighted) {
+            r -= w.weight;
+            if (r <= 0) { chosen.push(w.word); break; }
+        }
+    }
+    return chosen.join(' ');
 }
 
 // ========== WPM CHART ==========
@@ -442,12 +668,15 @@ function drawWpmChart() {
     const canvas = els.wpmChart;
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = canvas.offsetWidth * dpr;
-    canvas.height = 200 * dpr;
-    ctx.scale(dpr, dpr);
-
+    // Read offsetWidth BEFORE resizing the canvas — setting canvas.width changes its
+    // own layout size (no CSS constrains it), so reading offsetWidth after would read
+    // back the already-inflated value and push all drawing off the visible buffer.
     const w = canvas.offsetWidth;
     const h = 200;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    ctx.scale(dpr, dpr);
+
     const data = state.wpmHistory;
 
     if (data.length < 2) return;
@@ -551,12 +780,18 @@ function resetTest(newText = true) {
     state.charIndex = 0;
     state.correctChars = 0;
     state.incorrectChars = 0;
+    state.correctedChars = 0;
     state.totalKeystrokes = 0;
     state.wpmHistory = [];
+    state.charStats = {};
+    state.bigramStats = {};
+    state.lastKeystrokeTime = null;
+    state.prevInputLength = 0;
 
     if (newText) {
         state.text = generateText();
     }
+    state.hadError = new Array(state.text.length).fill(false);
 
     els.input.value = '';
     els.settingsBar.classList.remove('disabled');
@@ -571,11 +806,47 @@ function resetTest(newText = true) {
     els.liveAccuracy.innerHTML = '100<span class="stat-unit">%</span>';
     els.liveTime.textContent = state.mode === 'time' ? state.duration : '0';
     els.liveChars.textContent = '0';
+    els.liveCorrected.textContent = '0';
     els.wpmBar.style.width = '0%';
     els.accuracyBar.style.width = '100%';
     els.timeBar.style.width = state.mode === 'time' ? '100%' : '0%';
 
     renderText();
+}
+
+// ========== KEYSTROKE TRACKING (for weak-point analysis) ==========
+function trackKeystroke(inputVal) {
+    const now = performance.now();
+
+    if (inputVal.length > state.prevInputLength) {
+        // A forward keystroke landed at this index
+        const idx = inputVal.length - 1;
+        if (idx < state.text.length) {
+            const targetChar = state.text[idx].toLowerCase();
+            const wasCorrect = inputVal[idx] === state.text[idx];
+            const dt = state.lastKeystrokeTime != null ? now - state.lastKeystrokeTime : null;
+            const validTiming = dt != null && dt > 0 && dt < 3000; // ignore pauses (e.g. tab-switch)
+
+            const cs = state.charStats[targetChar] || (state.charStats[targetChar] = { attempts: 0, errors: 0, totalMs: 0, timedSamples: 0 });
+            cs.attempts++;
+            if (!wasCorrect) cs.errors++;
+            if (validTiming) { cs.totalMs += dt; cs.timedSamples++; }
+
+            if (idx > 0) {
+                const bigram = state.text[idx - 1].toLowerCase() + targetChar;
+                const bs = state.bigramStats[bigram] || (state.bigramStats[bigram] = { attempts: 0, errors: 0, totalMs: 0, timedSamples: 0 });
+                bs.attempts++;
+                if (!wasCorrect) bs.errors++;
+                if (validTiming) { bs.totalMs += dt; bs.timedSamples++; }
+            }
+        }
+        state.lastKeystrokeTime = now;
+    } else if (inputVal.length < state.prevInputLength) {
+        // Backspace — don't let the pause before it skew the next timing sample
+        state.lastKeystrokeTime = now;
+    }
+
+    state.prevInputLength = inputVal.length;
 }
 
 // ========== HANDLE INPUT ==========
@@ -592,8 +863,12 @@ function handleInput(e) {
     // Process each character up to current input length
     state.totalKeystrokes = inputVal.length;
 
+    // Track per-character and per-bigram accuracy + speed for weak-point analysis
+    trackKeystroke(inputVal);
+
     let correctCount = 0;
     let incorrectCount = 0;
+    let correctedCount = 0;
 
     for (let i = 0; i < state.text.length; i++) {
         const charEl = chars[i];
@@ -605,9 +880,14 @@ function handleInput(e) {
             if (inputVal[i] === state.text[i]) {
                 charEl.classList.add('correct');
                 correctCount++;
+                if (state.hadError[i]) {
+                    charEl.classList.add('corrected');
+                    correctedCount++;
+                }
             } else {
                 charEl.classList.add('incorrect');
                 incorrectCount++;
+                state.hadError[i] = true;
                 if (state.text[i] === ' ') charEl.classList.add('space-error');
             }
         } else if (i === inputVal.length) {
@@ -620,6 +900,7 @@ function handleInput(e) {
     state.charIndex = inputVal.length;
     state.correctChars = correctCount;
     state.incorrectChars = incorrectCount;
+    state.correctedChars = correctedCount;
 
     // Play sound
     if (inputVal.length > 0) {
@@ -804,8 +1085,17 @@ async function saveToHistory(wpm, accuracy) {
     });
 }
 
+async function saveWeakPointStats() {
+    if (Object.keys(state.charStats).length === 0 && Object.keys(state.bigramStats).length === 0) return;
+    await API.post('/api/weakpoints', {
+        charStats: state.charStats,
+        bigramStats: state.bigramStats
+    });
+}
+
 async function renderStats() {
     const result = await API.get('/api/stats?limit=30');
+    renderKeyboardHeatmap();
 
     if (!result.success || result.stats.totalTests === 0) {
         els.totalTests.textContent = '0';
@@ -829,16 +1119,94 @@ async function renderStats() {
     }
 }
 
+// ========== KEYBOARD HEATMAP ==========
+const HEATMAP_ROWS = [
+    ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
+    ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
+    ['z', 'x', 'c', 'v', 'b', 'n', 'm']
+];
+const HEATMAP_MIN_ATTEMPTS = 2;
+const HEATMAP_GOOD_RGB = [0, 212, 170];  // matches --char-correct
+const HEATMAP_BAD_RGB = [255, 107, 107]; // matches --char-incorrect
+
+function lerpColor(a, b, t) {
+    const r = Math.round(a[0] + (b[0] - a[0]) * t);
+    const g = Math.round(a[1] + (b[1] - a[1]) * t);
+    const bl = Math.round(a[2] + (b[2] - a[2]) * t);
+    return `rgb(${r}, ${g}, ${bl})`;
+}
+
+async function renderKeyboardHeatmap() {
+    const result = await API.get('/api/weakpoints');
+    if (!result.success) {
+        els.noHeatmap.classList.remove('hidden');
+        return;
+    }
+
+    const charStats = result.charStats || {};
+    const measured = {};
+    let maxBadness = 0;
+
+    const avgMs = average(
+        Object.values(charStats)
+            .filter(s => s.timedSamples > 0)
+            .map(s => s.totalMs / s.timedSamples)
+    );
+
+    for (const [ch, s] of Object.entries(charStats)) {
+        if (s.attempts < HEATMAP_MIN_ATTEMPTS) continue;
+        const errorRate = s.errors / s.attempts;
+        const charAvgMs = s.timedSamples > 0 ? s.totalMs / s.timedSamples : null;
+        const slowness = charAvgMs != null && avgMs > 0 ? Math.max(0, (charAvgMs - avgMs) / avgMs) : 0;
+        const badness = errorRate * 100 + slowness * 20;
+        measured[ch] = { badness, errorRate, avgMs: charAvgMs };
+        if (badness > maxBadness) maxBadness = badness;
+    }
+
+    if (Object.keys(measured).length === 0) {
+        els.keyboardHeatmap.innerHTML = '';
+        els.noHeatmap.classList.remove('hidden');
+        return;
+    }
+    els.noHeatmap.classList.add('hidden');
+
+    function renderKey(ch, label, extraClass = '') {
+        const m = measured[ch];
+        if (!m) {
+            return `<div class="hm-key hm-inactive ${extraClass}" data-tip="No data yet">${escapeHtml(label)}</div>`;
+        }
+        const t = maxBadness > 0 ? m.badness / maxBadness : 0;
+        const color = lerpColor(HEATMAP_GOOD_RGB, HEATMAP_BAD_RGB, Math.min(1, t));
+        const pct = Math.round(m.errorRate * 100);
+        const speedPart = m.avgMs != null ? ` &middot; ${Math.round(m.avgMs)}ms avg` : '';
+        const tip = `${pct}% errors${speedPart}`;
+        return `<div class="hm-key hm-measured ${extraClass}" style="--key-color:${color};--key-glow:${Math.min(1, t).toFixed(2)}" data-tip="${tip}">${escapeHtml(label)}</div>`;
+    }
+
+    const rowsHtml = HEATMAP_ROWS.map(row => {
+        const keysHtml = row.map(ch => renderKey(ch, ch)).join('');
+        return `<div class="hm-row">${keysHtml}</div>`;
+    }).join('');
+
+    els.keyboardHeatmap.innerHTML = `
+        ${rowsHtml}
+        <div class="hm-row">${renderKey(' ', 'space', 'hm-space')}</div>
+    `;
+}
+
 function drawHistoryChart(history) {
     const canvas = els.historyChart;
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = canvas.offsetWidth * dpr;
-    canvas.height = 250 * dpr;
-    ctx.scale(dpr, dpr);
-
+    // Read offsetWidth BEFORE resizing the canvas — setting canvas.width changes its
+    // own layout size (no CSS constrains it), so reading offsetWidth after would read
+    // back the already-inflated value and push all drawing off the visible buffer.
     const w = canvas.offsetWidth;
     const h = 250;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    ctx.scale(dpr, dpr);
+
     const data = history.slice(-30); // Last 30 tests
 
     if (data.length < 2) {
@@ -938,6 +1306,7 @@ function switchSection(sectionId) {
 
     if (sectionId === 'leaderboard') renderLeaderboard();
     if (sectionId === 'stats') renderStats();
+    if (sectionId === 'practice') loadPracticeWeakPoints();
 }
 
 function applyTheme(theme) {
@@ -970,6 +1339,7 @@ function initEvents() {
             $$('#mode-pills .pill').forEach(p => p.classList.remove('active'));
             pill.classList.add('active');
             state.mode = pill.dataset.mode;
+            state.practiceMode = false;
 
             // Toggle duration/word settings visibility
             $('#time-settings').classList.toggle('hidden', state.mode !== 'time');
@@ -985,6 +1355,7 @@ function initEvents() {
             $$('#time-pills .pill').forEach(p => p.classList.remove('active'));
             pill.classList.add('active');
             state.duration = parseInt(pill.dataset.time);
+            state.practiceMode = false;
             resetTest();
         });
     });
@@ -995,6 +1366,7 @@ function initEvents() {
             $$('#word-pills .pill').forEach(p => p.classList.remove('active'));
             pill.classList.add('active');
             state.wordCount = parseInt(pill.dataset.words);
+            state.practiceMode = false;
             resetTest();
         });
     });
@@ -1005,6 +1377,7 @@ function initEvents() {
             $$('#diff-pills .pill').forEach(p => p.classList.remove('active'));
             pill.classList.add('active');
             state.difficulty = pill.dataset.diff;
+            state.practiceMode = false;
             resetTest();
         });
     });
@@ -1039,6 +1412,25 @@ function initEvents() {
     $('#btn-restart').addEventListener('click', () => resetTest(false));
     $('#btn-new-text').addEventListener('click', () => resetTest(true));
     $('#btn-retry').addEventListener('click', () => resetTest(true));
+
+    // Start a practice drill built from all-time weak points
+    els.btnStartPractice.addEventListener('click', () => {
+        if (!practiceStatsCache) return;
+        const text = generatePracticeText(practiceStatsCache.charStats, practiceStatsCache.bigramStats, 40);
+        if (!text) return;
+
+        state.mode = 'words';
+        state.practiceMode = true;
+        state.practiceText = text;
+
+        $$('#mode-pills .pill').forEach(p => p.classList.toggle('active', p.dataset.mode === 'words'));
+        $('#time-settings').classList.add('hidden');
+        $('#word-settings').classList.remove('hidden');
+
+        switchSection('test');
+        resetTest(true);
+        els.container.click();
+    });
 
     // Save to leaderboard
     $('#btn-save-score').addEventListener('click', () => {

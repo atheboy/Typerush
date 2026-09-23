@@ -35,6 +35,10 @@
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
                     Stats
                 </button>
+                <button class="nav-btn" id="nav-practice" data-section="practice">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+                    Practice
+                </button>
             </nav>
             <div class="header-actions">
                 <button class="icon-btn" id="theme-toggle" title="Toggle theme">
@@ -112,6 +116,10 @@
                     <div class="stat-value" id="live-chars">0</div>
                     <div class="stat-label">Characters</div>
                 </div>
+                <div class="stat-card" id="stat-corrected">
+                    <div class="stat-value" id="live-corrected">0</div>
+                    <div class="stat-label">Corrected</div>
+                </div>
             </div>
 
             <!-- Typing Area -->
@@ -140,7 +148,7 @@
             <!-- Results Panel (shown after test) -->
             <div class="results-panel hidden" id="results-panel">
                 <div class="results-header">
-                    <h2 class="results-title">Test Complete!</h2>
+                    <h2 class="results-title" id="results-title">Test Complete!</h2>
                     <div class="results-grade" id="results-grade">A+</div>
                 </div>
                 <div class="results-grid">
@@ -174,10 +182,19 @@
                         <div class="result-value" id="result-raw">0</div>
                         <div class="result-label">Raw WPM</div>
                     </div>
+                    <div class="result-card">
+                        <div class="result-icon">🛠️</div>
+                        <div class="result-value" id="result-corrected">0</div>
+                        <div class="result-label">Corrected</div>
+                    </div>
                 </div>
                 <div class="wpm-chart-container">
                     <h3 class="chart-title">WPM Over Time</h3>
                     <canvas id="wpm-chart" width="800" height="200"></canvas>
+                </div>
+                <div class="wpm-chart-container weakness-panel" id="weakness-panel">
+                    <h3 class="chart-title">🎯 Your Weak Points</h3>
+                    <div id="weakness-body"></div>
                 </div>
                 <div class="results-actions">
                     <button class="action-btn primary" id="btn-save-score">
@@ -283,6 +300,42 @@
                 <div class="no-history hidden" id="no-history">
                     <p>Complete some tests to see your history chart.</p>
                 </div>
+            </div>
+            <div class="stats-chart-container">
+                <h3 class="chart-title">Keyboard Heatmap</h3>
+                <div class="heatmap-legend">
+                    <div class="legend-scale">
+                        <span>Fast &amp; accurate</span>
+                        <span class="legend-scale-bar"></span>
+                        <span>Slow / error-prone</span>
+                    </div>
+                    <span class="legend-item"><span class="legend-swatch"></span> No data yet</span>
+                </div>
+                <div class="keyboard-heatmap" id="keyboard-heatmap"></div>
+                <div class="no-history hidden" id="no-heatmap">
+                    <p>Complete some tests to see which keys give you trouble.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===== PRACTICE SECTION ===== -->
+        <section class="section" id="section-practice">
+            <div class="section-header">
+                <h1 class="section-title">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+                    Practice Mode
+                </h1>
+                <p class="section-subtitle">Drills built from your all-time weak points</p>
+            </div>
+            <div class="wpm-chart-container weakness-panel" id="practice-weakpoints">
+                <h3 class="chart-title">🎯 Your All-Time Weak Points</h3>
+                <div id="practice-weakness-body"></div>
+            </div>
+            <div class="results-actions">
+                <button class="action-btn primary" id="btn-start-practice" disabled>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    Start Practice Drill
+                </button>
             </div>
         </section>
     </main>

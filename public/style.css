@@ -41,6 +41,7 @@
     /* Typing */
     --char-correct: #00d4aa;
     --char-incorrect: #ff6b6b;
+    --char-corrected: #ffd700;
     --char-current: #7c5cfc;
     --char-upcoming: #55536a;
 
@@ -561,6 +562,12 @@ main {
     border-bottom-color: var(--char-incorrect);
 }
 
+.text-display .char.corrected {
+    border-bottom-style: dotted;
+    border-bottom-width: 2px;
+    border-bottom-color: var(--char-corrected);
+}
+
 .text-display .char.current {
     color: var(--text-primary);
     background: rgba(124, 92, 252, 0.15);
@@ -635,6 +642,17 @@ main {
 .action-btn.primary:hover {
     transform: translateY(-2px);
     box-shadow: 0 6px 20px rgba(124, 92, 252, 0.4);
+}
+
+.action-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    filter: grayscale(0.6);
+}
+
+.action-btn:disabled:hover {
+    transform: none;
+    box-shadow: none;
 }
 
 .action-btn.secondary {
@@ -767,6 +785,98 @@ main {
     font-weight: 600;
     color: var(--text-secondary);
     margin-bottom: 16px;
+}
+
+/* Weak Points */
+.weakness-empty {
+    text-align: center;
+    color: var(--text-secondary);
+    padding: 12px 8px;
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.weakness-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+}
+
+@media (max-width: 640px) {
+    .weakness-columns { grid-template-columns: 1fr; }
+}
+
+.weakness-col-label {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+}
+
+.weak-key-row, .weak-bigram-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.weak-key-row:last-child, .weak-bigram-row:last-child {
+    border-bottom: none;
+}
+
+.weak-key-chip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+    height: 32px;
+    padding: 0 8px;
+    border-radius: var(--radius-sm);
+    background: rgba(255, 107, 107, 0.12);
+    color: var(--accent-warning);
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 15px;
+    flex-shrink: 0;
+}
+
+.weak-key-bar-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.weak-key-bar-track {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--bg-tertiary);
+    overflow: hidden;
+}
+
+.weak-key-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: var(--gradient-warm);
+}
+
+.weak-key-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.weakness-insight {
+    margin-top: 20px;
+    padding: 14px 16px;
+    border-radius: var(--radius-md);
+    background: var(--gradient-card);
+    border: 1px solid var(--border-accent);
+    color: var(--text-primary);
+    font-size: 14px;
+    line-height: 1.6;
 }
 
 /* Results Actions */
@@ -1140,8 +1250,178 @@ main {
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-lg);
     padding: 24px;
+    margin-bottom: 24px;
     backdrop-filter: blur(10px);
     position: relative;
+}
+
+.stats-chart-container:last-child {
+    margin-bottom: 0;
+}
+
+/* --- Keyboard Heatmap --- */
+.heatmap-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 24px;
+    margin-bottom: 28px;
+}
+
+.legend-scale {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 220px;
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.legend-scale-bar {
+    flex: 1;
+    height: 6px;
+    min-width: 80px;
+    border-radius: 3px;
+    background: linear-gradient(90deg, var(--char-correct), var(--char-incorrect));
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.legend-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    display: inline-block;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
+}
+
+.keyboard-heatmap {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 0 4px;
+}
+
+.hm-row {
+    display: flex;
+    gap: 6px;
+}
+
+/* Real QWERTY stagger, not a flush grid — this is what makes it read as a keyboard */
+.hm-row:nth-child(2) { margin-left: 16px; }
+.hm-row:nth-child(3) { margin-left: 32px; }
+
+.hm-key {
+    position: relative;
+    min-width: 38px;
+    height: 38px;
+    border-radius: 7px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.1),
+        0 2px 0 rgba(0, 0, 0, 0.18),
+        var(--shadow-sm);
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+    cursor: default;
+}
+
+/* Keys with real data get their heat color + a matching glow, driven by JS-set custom properties */
+.hm-key.hm-measured {
+    background: var(--key-color);
+    color: #0a0a0f;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.35),
+        0 2px 0 rgba(0, 0, 0, 0.22),
+        0 0 calc(var(--key-glow, 0) * 18px) var(--key-color);
+}
+
+.hm-key:hover {
+    transform: translateY(-3px);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.15),
+        0 4px 0 rgba(0, 0, 0, 0.2),
+        0 8px 16px rgba(0, 0, 0, 0.2);
+}
+
+.hm-key.hm-measured:hover {
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.4),
+        0 4px 0 rgba(0, 0, 0, 0.25),
+        0 0 calc(var(--key-glow, 0) * 26px) var(--key-color);
+}
+
+.hm-key.hm-inactive {
+    color: var(--text-muted);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.06),
+        0 1px 0 rgba(0, 0, 0, 0.1);
+    opacity: 0.55;
+}
+
+.hm-key.hm-inactive:hover {
+    transform: none;
+}
+
+.hm-key.hm-space {
+    min-width: 224px;
+    font-size: 11px;
+    letter-spacing: 1px;
+}
+
+/* Custom tooltip — replaces the native browser title tooltip */
+.hm-key[data-tip]::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 10px);
+    left: 50%;
+    transform: translateX(-50%) translateY(4px);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-accent);
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: none;
+    white-space: nowrap;
+    box-shadow: var(--shadow-md);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--transition-fast), transform var(--transition-fast);
+    z-index: 10;
+}
+
+.hm-key[data-tip]:hover::after {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+@media (max-width: 640px) {
+    .hm-key { min-width: 27px; height: 32px; font-size: 11px; }
+    .hm-key.hm-space { min-width: 130px; }
+    .hm-row { gap: 4px; }
+    .hm-row:nth-child(2) { margin-left: 10px; }
+    .hm-row:nth-child(3) { margin-left: 20px; }
+    .hm-key[data-tip]::after { display: none; } /* no hover on touch */
 }
 
 .no-history {
